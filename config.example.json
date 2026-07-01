@@ -1,0 +1,25 @@
+{
+  "web_console_token": "在这里填一个足够长的随机访问令牌",
+
+  "_注释_鉴权模式": "auth_mode: subscription=用Max/订阅额度; relay=用第三方中转站。留空则填了 base_url 即视为 relay，否则 subscription",
+  "auth_mode": "",
+
+  "_注释_订阅模式": "auth_mode=subscription 时用，claude setup-token 生成（机密！）",
+  "claude_code_oauth_token": "sk-ant-oat01-...",
+
+  "_注释_中转站模式": "auth_mode=relay 时用。base_url 指向中转站 Anthropic 兼容端点；auth_token 走 Bearer（多数中转站用这个），或 api_key 走 x-api-key。二选一别同时填",
+  "base_url": "",
+  "auth_token": "",
+  "api_key": "",
+
+  "work_dir": "d:\\work\\AI_NovelGenerator-main",
+  "_注释_多项目": "可选。配了 work_dirs（白名单）则前端可切换工作目录；每项可为字符串或 {path,label}。前端只能选白名单里的，不接受任意路径",
+  "work_dirs": [],
+  "host": "0.0.0.0",
+  "port": 8765,
+  "claude_bin": "",
+  "proxy": "",
+  "model": "",
+  "permission_mode": "",
+  "serverchan_sendkey": "（可选）Server酱 SendKey，填了则任务完成/出错时微信推送"
+}

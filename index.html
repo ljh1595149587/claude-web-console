@@ -1,0 +1,956 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+<meta name="theme-color" content="#1f1e1d" />
+<title>Claude</title>
+<!-- favicon：内联 SVG，珊瑚色 ✻ 标志（与登录页/顶栏一致），无需额外文件 -->
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f1e1d'/%3E%3Ctext x='16' y='23' font-size='22' text-anchor='middle' fill='%23d97757' font-family='sans-serif'%3E%E2%9C%BB%3C/text%3E%3C/svg%3E" />
+<link rel="apple-touch-icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f1e1d'/%3E%3Ctext x='16' y='23' font-size='22' text-anchor='middle' fill='%23d97757' font-family='sans-serif'%3E%E2%9C%BB%3C/text%3E%3C/svg%3E" />
+<style>
+  /* Claude Code 风格：暖珊瑚强调色 + 干净深色 */
+  :root { --bg:#1f1e1d; --panel:#262624; --line:#3a3937; --fg:#f0eee6;
+    --mut:#9a958c; --acc:#d97757; --acc-soft:rgba(217,119,87,.16); }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",sans-serif; }
+  body { display:flex; flex-direction:column; height:100dvh; }
+  button { font-family:inherit; cursor:pointer; }
+
+  /* 顶栏 */
+  header { display:flex; align-items:center; gap:6px; padding:10px 14px;
+    background:var(--panel); border-bottom:1px solid var(--line); }
+  header .brand { flex:1; display:flex; align-items:center; gap:8px; font-weight:600; font-size:16px; }
+  header .brand .spark { color:var(--acc); font-size:18px; }
+  .iconbtn { width:38px; height:38px; display:flex; align-items:center; justify-content:center;
+    border:1px solid transparent; border-radius:10px; background:transparent; color:var(--mut); }
+  .iconbtn:hover { background:var(--bg); color:var(--fg); }
+  .iconbtn svg { width:20px; height:20px; }
+
+  main { flex:1; min-height:0; position:relative; }
+  .view { position:absolute; inset:0; display:flex; flex-direction:column; }
+
+  /* 登录 */
+  #login { position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:12px; padding:24px; z-index:20; background:var(--bg); }
+  #login .spark { color:var(--acc); font-size:34px; }
+  #login input { width:100%; max-width:340px; padding:12px; border-radius:10px;
+    border:1px solid var(--line); background:var(--panel); color:var(--fg); font-size:16px; }
+  #login button { padding:12px 22px; border:none; border-radius:10px; background:var(--acc);
+    color:#fff; font-size:16px; font-weight:500; }
+  .hint { color:var(--mut); font-size:13px; text-align:center; }
+
+  /* 聊天 */
+  #msgs { flex:1; overflow-y:auto; padding:14px; display:flex; flex-direction:column; gap:12px; }
+  .empty { margin:auto; text-align:center; color:var(--mut); }
+  .empty .spark { color:var(--acc); font-size:40px; display:block; margin-bottom:8px; }
+  .bubble { max-width:88%; padding:10px 13px; border-radius:14px; white-space:pre-wrap;
+    word-break:break-word; }
+  .me { align-self:flex-end; background:var(--acc); color:#fff; border-bottom-right-radius:4px; }
+  .ai { align-self:flex-start; background:var(--panel); border:1px solid var(--line);
+    border-bottom-left-radius:4px; }
+  .tool { align-self:flex-start; font-size:12px; color:var(--mut); padding:2px 10px;
+    border:1px dashed var(--line); border-radius:10px; font-family:ui-monospace,Consolas,monospace; }
+
+  /* 工具调用卡片（可观测性：显示命令/文件 + 结果输出） */
+  .tc { align-self:flex-start; max-width:92%; width:92%; background:var(--panel);
+    border:1px solid var(--line); border-radius:12px; overflow:hidden; font-size:13px; }
+  .tc-head { display:flex; align-items:center; gap:8px; padding:8px 11px; cursor:pointer; }
+  .tc-ico { font-size:13px; }
+  .tc-name { font-weight:600; }
+  .tc-sub { flex:1; color:var(--mut); font-family:ui-monospace,Consolas,monospace;
+    font-size:12px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .tc-stat { font-size:12px; }
+  .tc-stat.err { color:#ff8c8c; }
+  .tc-stat.ok { color:#7bd88f; }
+  .tc-arrow { color:var(--mut); transition:transform .15s; }
+  .tc.open .tc-arrow { transform:rotate(90deg); }
+  .tc-body { display:none; border-top:1px solid var(--line); }
+  .tc.open .tc-body { display:block; }
+  .tc-body pre { margin:0; padding:9px 11px; overflow-x:auto; max-height:340px; overflow-y:auto;
+    font-family:ui-monospace,Consolas,monospace; font-size:12px; white-space:pre-wrap;
+    word-break:break-word; }
+  .tc-body .lbl { padding:6px 11px 0; color:var(--mut); font-size:11px; text-transform:uppercase; }
+  .tc-body pre.out { background:#16100c; }
+  .think { align-self:flex-start; max-width:88%; font-size:13px; font-style:italic;
+    color:var(--mut); white-space:pre-wrap; word-break:break-word; padding:6px 12px;
+    border:1px dashed var(--line); border-radius:12px; opacity:.85; }
+  .waiting { animation:pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%,100%{opacity:.4} 50%{opacity:1} }
+
+  /* AskUserQuestion 选项卡片 */
+  .ask { align-self:flex-start; max-width:92%; background:var(--panel);
+    border:1px solid var(--acc); border-radius:14px; padding:11px;
+    display:flex; flex-direction:column; gap:7px; }
+  .ask-h { font-size:12px; color:var(--acc); font-weight:600; }
+  .ask-q { font-size:14px; }
+  .ask-opts { display:flex; flex-direction:column; gap:6px; }
+  .ask-opt { text-align:left; padding:9px 11px; border:1px solid var(--line);
+    border-radius:9px; background:var(--bg); color:var(--fg); }
+  .ask-opt.on { border-color:var(--acc); background:var(--acc-soft); }
+  .ask-lab { font-size:14px; }
+  .ask-desc { font-size:12px; color:var(--mut); margin-top:2px; }
+  .ask-send { padding:9px; border:none; border-radius:9px; background:var(--acc);
+    color:#fff; font-size:14px; }
+  .ask.done { opacity:.55; pointer-events:none; }
+  .err { align-self:stretch; color:#ff8c8c; font-size:13px; white-space:pre-wrap; }
+
+  /* markdown 渲染后的气泡 */
+  .bubble.md { white-space:normal; }
+  .bubble.md > :first-child { margin-top:0; }
+  .bubble.md > :last-child { margin-bottom:0; }
+  .bubble.md p { margin:6px 0; }
+  .bubble.md h1, .bubble.md h2, .bubble.md h3,
+  .bubble.md h4, .bubble.md h5, .bubble.md h6 { margin:8px 0 4px; font-size:1.05em; }
+  .bubble.md ul, .bubble.md ol { margin:6px 0; padding-left:20px; }
+  .bubble.md li { margin:2px 0; }
+  .bubble.md blockquote { margin:6px 0; padding-left:10px;
+    border-left:3px solid var(--line); color:var(--mut); }
+  .bubble.md hr { border:none; border-top:1px solid var(--line); margin:8px 0; }
+  .bubble.md a { color:var(--acc); }
+  .bubble.md code { background:#16100c; border:1px solid var(--line); border-radius:4px;
+    padding:1px 4px; font-family:ui-monospace,Consolas,monospace; font-size:.9em; }
+  .bubble.md pre { background:#16100c; border:1px solid var(--line); border-radius:8px;
+    padding:8px 10px; overflow-x:auto; margin:6px 0; }
+  .bubble.md pre code { background:none; border:none; padding:0; font-size:.85em; }
+  .bubble.md table { border-collapse:collapse; margin:6px 0; font-size:.9em;
+    display:block; overflow-x:auto; max-width:100%; }
+  .bubble.md th, .bubble.md td { border:1px solid var(--line); padding:4px 8px; }
+  .bubble.md th { background:#16100c; }
+
+  /* 权限模式状态条（仿 Claude Code：glyph + 语义色，非默认时才显示） */
+  #permbar { display:none; align-items:center; gap:6px; padding:5px 14px; font-size:12px;
+    font-family:ui-monospace,Consolas,monospace; border-top:1px solid var(--line);
+    background:var(--panel); }
+  #permbar.on { display:flex; }
+  #permbar.plan { color:#7bd88f; }
+  #permbar.acceptEdits { color:#5aa9ff; }
+  #permbar.bypassPermissions { color:#ff8c8c; }
+
+  #composer { display:flex; gap:8px; padding:10px 12px; border-top:1px solid var(--line);
+    background:var(--panel); align-items:flex-end; }
+  #composer textarea { flex:1; resize:none; max-height:120px; padding:11px;
+    border-radius:12px; border:1px solid var(--line); background:var(--bg); color:var(--fg);
+    font-size:16px; }
+  #composer button { width:46px; height:44px; border:none; border-radius:12px; background:var(--acc);
+    color:#fff; display:flex; align-items:center; justify-content:center; flex:none; }
+  #composer button svg { width:20px; height:20px; }
+  #composer button:disabled { opacity:.5; }
+  #composer button.stop { background:#c0392b; }
+  #composer button.cbtn { background:transparent; color:var(--mut); border:1px solid var(--line); }
+  #composer button.cbtn:hover { color:var(--fg); }
+  /* 待发送图片预览条 */
+  #preview { display:flex; gap:8px; padding:0 12px; overflow-x:auto; }
+  #preview:not(:empty) { padding:10px 12px 0; }
+  #preview .pv { position:relative; flex:none; }
+  #preview img { height:64px; width:64px; object-fit:cover; border-radius:8px; border:1px solid var(--line); }
+  #preview .rm { position:absolute; top:-6px; right:-6px; width:20px; height:20px; border-radius:50%;
+    background:#000; color:#fff; border:1px solid var(--line); font-size:12px; line-height:1;
+    display:flex; align-items:center; justify-content:center; }
+  /* 消息里的图片 */
+  .bubble img.msgimg { max-width:200px; max-height:200px; border-radius:8px; display:block;
+    margin-top:6px; }
+
+  /* 覆盖面板（历史 / 设置 / 文件 / 文件查看），从右侧滑入 */
+  .panel { position:absolute; inset:0; background:var(--bg); display:flex; flex-direction:column;
+    z-index:10; transform:translateX(100%); transition:transform .22s ease; visibility:hidden; }
+  .panel.on { transform:translateX(0); visibility:visible; }
+  .ph { display:flex; align-items:center; gap:8px; padding:11px 12px;
+    background:var(--panel); border-bottom:1px solid var(--line); }
+  .ph .pt { flex:1; font-weight:600; font-size:15px; }
+  .ph .vn { flex:1; word-break:break-all; font-size:13px; color:var(--mut); }
+
+  /* 设置 */
+  #settings .body { padding:16px; overflow-y:auto; display:flex; flex-direction:column; gap:18px; }
+  .field label { display:block; font-size:13px; color:var(--mut); margin-bottom:6px; }
+  .field select, .field .val { width:100%; padding:11px; border-radius:10px;
+    border:1px solid var(--line); background:var(--panel); color:var(--fg); font-size:15px; }
+  .field .val { color:var(--mut); word-break:break-all; font-size:13px; }
+  .bigbtn { padding:12px; border:1px solid var(--line); border-radius:10px; background:var(--panel);
+    color:var(--fg); font-size:15px; display:flex; align-items:center; gap:10px; }
+  .bigbtn svg { width:18px; height:18px; color:var(--mut); }
+
+  /* 历史 / 文件 列表 */
+  #sesslist, #list { flex:1; overflow-y:auto; }
+  .row { display:flex; align-items:center; gap:8px; padding:12px; border-bottom:1px solid var(--line); }
+  .row .nm { flex:1; word-break:break-all; }
+  .row .sz { color:var(--mut); font-size:12px; }
+  #sesslist .row { flex-direction:column; align-items:stretch; gap:3px; }
+  #sesslist .row .nm { word-break:break-word; }
+  #crumbs { padding:9px 12px; color:var(--mut); font-size:13px; border-bottom:1px solid var(--line);
+    overflow-x:auto; white-space:nowrap; }
+  #crumbs a { color:var(--acc); text-decoration:none; }
+  #vbody { flex:1; margin:0; padding:12px; overflow:auto; font-size:13px;
+    font-family:ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre; }
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="spark">✻</div>
+  <div style="font-size:18px;font-weight:600">Claude</div>
+  <input id="tokenInput" type="password" placeholder="输入访问令牌 token" autocomplete="off" />
+  <button id="loginBtn">进入</button>
+  <div class="hint">令牌在服务端启动日志里。会保存在本设备浏览器。</div>
+</div>
+
+<header style="display:none">
+  <span class="brand"><span class="spark">✻</span>Claude</span>
+  <button class="iconbtn" id="btnNew" title="新对话">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+  <button class="iconbtn" id="btnHist" title="历史对话">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v5h5"/><path d="M3.05 13A9 9 0 1 0 6 5.3L3 8"/><path d="M12 7v5l4 2"/></svg>
+  </button>
+  <button class="iconbtn" id="btnFiles" title="文件">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+  </button>
+  <button class="iconbtn" id="btnSet" title="设置">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+  </button>
+</header>
+
+<main style="display:none">
+  <section class="view" id="v-chat">
+    <div id="msgs"></div>
+    <div id="preview"></div>
+    <div id="permbar"></div>
+    <div id="composer">
+      <input type="file" id="imgInput" accept="image/*" multiple hidden />
+      <button id="attach" class="cbtn" title="添加图片">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10"/><circle cx="9" cy="9" r="2"/><path d="m21 15-3.1-3.1a2 2 0 0 0-2.8 0L6 21"/></svg>
+      </button>
+      <textarea id="input" rows="1" placeholder="给 Claude 发消息…"></textarea>
+      <button id="send" title="发送">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+      </button>
+    </div>
+  </section>
+
+  <!-- 历史 -->
+  <div class="panel" id="history">
+    <div class="ph">
+      <button class="iconbtn" data-close="history" title="返回">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <span class="pt">历史对话</span>
+    </div>
+    <div id="sesslist"></div>
+  </div>
+
+  <!-- 设置 -->
+  <div class="panel" id="settings">
+    <div class="ph">
+      <button class="iconbtn" data-close="settings" title="返回">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <span class="pt">设置</span>
+    </div>
+    <div class="body">
+      <div class="field">
+        <label>模型</label>
+        <select id="model"></select>
+      </div>
+      <div class="field">
+        <label>权限模式</label>
+        <select id="permMode"></select>
+        <div class="hint" style="text-align:left;margin-top:6px">Plan＝只读规划不执行（最安全）；放行全部＝不确认直接干。无头模式下「默认」遇需确认操作可能被拒。</div>
+      </div>
+      <div class="field">
+        <label>工作目录</label>
+        <select id="workDir" style="display:none"></select>
+        <div class="val" id="setWorkDir">—</div>
+        <div class="hint" style="text-align:left;margin-top:6px" id="workDirHint"></div>
+      </div>
+      <div class="field">
+        <label>完成通知</label>
+        <button class="bigbtn" id="btnNotify">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></svg>
+          <span id="notifyLabel">开启完成通知</span>
+        </button>
+        <div class="hint" style="text-align:left;margin-top:6px">页面切到后台时，一轮对话完成/出错会提醒（标题闪烁 + 系统通知）。</div>
+      </div>
+      <div class="field" id="wechatField" style="display:none">
+        <label>微信推送</label>
+        <div class="val" id="wechatStat">—</div>
+        <div class="hint" style="text-align:left;margin-top:6px">由服务端 Server酱推送，关掉浏览器/锁屏离开也能在微信收到。在 config.json 配 serverchan_sendkey 启用。</div>
+      </div>
+      <button class="bigbtn" id="btnLogout">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg>
+        退出登录
+      </button>
+    </div>
+  </div>
+
+  <!-- 文件浏览 -->
+  <div class="panel" id="files">
+    <div class="ph">
+      <button class="iconbtn" data-close="files" title="返回">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <span class="pt">文件</span>
+    </div>
+    <div id="crumbs"></div>
+    <div id="list"></div>
+  </div>
+
+  <!-- 文件查看 -->
+  <div class="panel" id="viewer">
+    <div class="ph">
+      <button class="iconbtn" data-close="viewer" title="返回">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <span class="vn" id="vname"></span>
+    </div>
+    <pre id="vbody"></pre>
+  </div>
+</main>
+
+<script>
+const $ = s => document.querySelector(s);
+
+// ---- 轻量 markdown 渲染（无外部依赖，先转义再排版，防 XSS）----
+function escHtml(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function mdInline(s) { // 入参已是转义后的文本
+  return s
+    .replace(/`([^`]+)`/g, (m, c) => "<code>" + c + "</code>")
+    .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*\n]+)\*/g, "$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+function mdTableRow(line) { // 拆一行表格单元格，去掉首尾竖线
+  let s = line.trim();
+  if (s.startsWith("|")) s = s.slice(1);
+  if (s.endsWith("|")) s = s.slice(0, -1);
+  return s.split("|").map(c => c.trim());
+}
+function mdIsSep(line) {   // 是否表格分隔行，如 | --- | :--: |
+  if (line == null || line.indexOf("|") < 0 && line.indexOf("-") < 0) return false;
+  const cells = mdTableRow(line);
+  return cells.length > 0 && cells.every(c => /^:?-+:?$/.test(c));
+}
+function renderMarkdown(text) {
+  const lines = String(text).replace(/\r\n/g, "\n").split("\n");
+  let html = "", i = 0, ul = false, ol = false;
+  const closeLists = () => { if (ul) { html += "</ul>"; ul = false; } if (ol) { html += "</ol>"; ol = false; } };
+  while (i < lines.length) {
+    const line = lines[i];
+    if (/^```/.test(line)) {                       // 围栏代码块
+      closeLists(); i++;
+      const code = [];
+      while (i < lines.length && !/^```/.test(lines[i])) { code.push(lines[i]); i++; }
+      i++;
+      html += "<pre><code>" + escHtml(code.join("\n")) + "</code></pre>";
+      continue;
+    }
+    let m;
+    if ((m = line.match(/^(#{1,6})\s+(.*)$/))) {   // 标题
+      closeLists(); const lv = m[1].length;
+      html += "<h" + lv + ">" + mdInline(escHtml(m[2])) + "</h" + lv + ">"; i++; continue;
+    }
+    if (/^(\s*[-*_]){3,}\s*$/.test(line)) { closeLists(); html += "<hr>"; i++; continue; } // 分隔线
+    if ((m = line.match(/^>\s?(.*)$/))) {          // 引用
+      closeLists(); html += "<blockquote>" + mdInline(escHtml(m[1])) + "</blockquote>"; i++; continue;
+    }
+    if ((m = line.match(/^\s*[-*+]\s+(.*)$/))) {   // 无序列表
+      if (ol) { html += "</ol>"; ol = false; } if (!ul) { html += "<ul>"; ul = true; }
+      html += "<li>" + mdInline(escHtml(m[1])) + "</li>"; i++; continue;
+    }
+    if ((m = line.match(/^\s*\d+\.\s+(.*)$/))) {   // 有序列表
+      if (ul) { html += "</ul>"; ul = false; } if (!ol) { html += "<ol>"; ol = true; }
+      html += "<li>" + mdInline(escHtml(m[1])) + "</li>"; i++; continue;
+    }
+    if (line.indexOf("|") >= 0 && i + 1 < lines.length && mdIsSep(lines[i + 1])) { // 表格
+      closeLists();
+      const head = mdTableRow(line);
+      const aligns = mdTableRow(lines[i + 1]).map(c => {
+        const l = c.startsWith(":"), r = c.endsWith(":");
+        return l && r ? "center" : r ? "right" : l ? "left" : "";
+      });
+      i += 2;
+      const rows = [];
+      while (i < lines.length && lines[i].indexOf("|") >= 0 && !/^\s*$/.test(lines[i])) {
+        rows.push(mdTableRow(lines[i])); i++;
+      }
+      const sty = a => a ? ' style="text-align:' + a + '"' : "";
+      let t = "<table><thead><tr>";
+      head.forEach((h, x) => { t += "<th" + sty(aligns[x]) + ">" + mdInline(escHtml(h)) + "</th>"; });
+      t += "</tr></thead><tbody>";
+      rows.forEach(r => {
+        t += "<tr>";
+        for (let x = 0; x < head.length; x++) t += "<td" + sty(aligns[x]) + ">" + mdInline(escHtml(r[x] || "")) + "</td>";
+        t += "</tr>";
+      });
+      html += t + "</tbody></table>";
+      continue;
+    }
+    if (/^\s*$/.test(line)) { closeLists(); i++; continue; } // 空行
+    closeLists();                                  // 段落：合并连续普通行
+    const para = [line]; i++;
+    while (i < lines.length && !/^\s*$/.test(lines[i]) && !/^(```|#{1,6}\s|>\s?|\s*[-*+]\s+|\s*\d+\.\s+)/.test(lines[i]) &&
+           !(lines[i].indexOf("|") >= 0 && i + 1 < lines.length && mdIsSep(lines[i + 1]))) {
+      para.push(lines[i]); i++;
+    }
+    html += "<p>" + mdInline(escHtml(para.join("\n"))).replace(/\n/g, "<br>") + "</p>";
+  }
+  closeLists();
+  return html;
+}
+
+let TOKEN = localStorage.getItem("cwc_token") || "";
+let sessionId = null;
+let workDir = "";     // 当前工作目录（白名单内），随请求发送
+let busy = false;
+let aborter = null; // 当前 /chat 请求的中断控制器（用于「停止生成」）
+
+// ---- 登录 ----
+function showApp() {
+  $("#login").style.display = "none";
+  document.querySelector("header").style.display = "flex";
+  document.querySelector("main").style.display = "block";
+  // 刷新恢复：上次对话的 sessionId 存在 localStorage，有则回放、接着聊
+  const last = localStorage.getItem("cwc_session");
+  if (last) { openSession(last, true).catch(() => resetChat()); }
+  else { resetChat(); }
+}
+async function tryLogin(tok) {
+  const r = await fetch("/api/info", { headers: { Authorization: "Bearer " + tok } });
+  if (!r.ok) throw new Error("令牌无效");
+  const info = await r.json();
+  TOKEN = tok; localStorage.setItem("cwc_token", tok);
+  setupInfo(info); showApp();
+}
+function setupInfo(info) {
+  const sel = $("#model");
+  sel.innerHTML = "";
+  (info.models || []).forEach(m => {
+    const o = document.createElement("option");
+    o.value = m.id; o.textContent = m.label; sel.appendChild(o);
+  });
+  const saved = localStorage.getItem("cwc_model");
+  sel.value = saved !== null ? saved : (info.default_model || "");
+  sel.onchange = () => localStorage.setItem("cwc_model", sel.value);
+  // 权限模式下拉
+  const pm = $("#permMode");
+  pm.innerHTML = "";
+  (info.perm_modes || []).forEach(m => {
+    const o = document.createElement("option");
+    o.value = m.id; o.textContent = m.label; pm.appendChild(o);
+  });
+  const savedPm = localStorage.getItem("cwc_perm");
+  pm.value = savedPm !== null ? savedPm : (info.default_perm_mode || "");
+  pm.onchange = () => { localStorage.setItem("cwc_perm", pm.value); updatePermBar(); };
+  updatePermBar();
+  // 工作目录：多个则显示下拉可切换，单个则静态显示
+  const wdSel = $("#workDir"), wdVal = $("#setWorkDir"), dirs = info.work_dirs || [];
+  const savedWd = localStorage.getItem("cwc_workdir");
+  workDir = (dirs.some(d => d.path === savedWd) ? savedWd : "") || info.work_dir || "";
+  if (dirs.length > 1) {
+    wdSel.innerHTML = ""; wdSel.style.display = "block"; wdVal.style.display = "none";
+    dirs.forEach(d => {
+      const o = document.createElement("option"); o.value = d.path; o.textContent = d.label; wdSel.appendChild(o);
+    });
+    wdSel.value = workDir;
+    wdSel.onchange = () => switchWorkDir(wdSel.value);
+    $("#workDirHint").textContent = "切换目录会开启新对话（各目录的历史相互独立）。";
+  } else {
+    wdSel.style.display = "none"; wdVal.style.display = "block";
+    wdVal.textContent = workDir || "—";
+    $("#workDirHint").textContent = "";
+  }
+  // 微信推送状态（后端是否配了 Server酱 SendKey）
+  $("#wechatField").style.display = "block";
+  $("#wechatStat").textContent = info.wechat_push ? "✓ 已启用（任务完成/出错时推送）" : "未配置";
+}
+// 权限模式状态条：仿 Claude Code 的 glyph + 文案 + 语义色；default 不显示
+function updatePermBar() {
+  const v = ($("#permMode") && $("#permMode").value) || "";
+  const map = {
+    plan: "⏸ plan mode on",
+    acceptEdits: "⏵⏵ accept edits on",
+    bypassPermissions: "⏵⏵ bypass permissions on",
+  };
+  const bar = $("#permbar");
+  bar.className = "";  // 清掉旧状态类
+  if (map[v]) {
+    bar.textContent = map[v];
+    bar.classList.add("on", v);
+  }
+}
+// 切换工作目录：记住选择、开新对话（各目录历史独立）
+function switchWorkDir(path) {
+  if (!path || path === workDir) return;
+  workDir = path;
+  localStorage.setItem("cwc_workdir", path);
+  $("#setWorkDir").textContent = path;
+  resetChat();          // 清空当前对话 + sessionId（换目录＝换上下文）
+  closePanel("settings");
+}
+$("#loginBtn").onclick = async () => {
+  try { await tryLogin($("#tokenInput").value.trim()); }
+  catch (e) { alert(e.message); }
+};
+// URL 里带 ?token= 时自动登录
+(function () {
+  const u = new URL(location.href);
+  const qt = u.searchParams.get("token");
+  if (qt) { tryLogin(qt).then(() => history.replaceState({}, "", location.pathname)).catch(()=>{}); return; }
+  if (TOKEN) tryLogin(TOKEN).catch(() => { TOKEN = ""; });
+})();
+
+// ---- 覆盖面板开关 ----
+function openPanel(id) { $("#" + id).classList.add("on"); }
+function closePanel(id) { $("#" + id).classList.remove("on"); }
+document.querySelectorAll("[data-close]").forEach(b => b.onclick = () => closePanel(b.dataset.close));
+$("#btnHist").onclick = () => { openPanel("history"); loadSessions(); };
+$("#btnFiles").onclick = () => { openPanel("files"); loadFiles(""); };
+$("#btnSet").onclick = () => openPanel("settings");
+$("#btnNew").onclick = () => { if (!busy) resetChat(); };
+$("#btnLogout").onclick = () => {
+  if (!confirm("退出登录？将清除本设备保存的令牌。")) return;
+  localStorage.removeItem("cwc_token"); location.reload();
+};
+function refreshNotifyLabel() {
+  const denied = "Notification" in window && Notification.permission === "denied";
+  $("#notifyLabel").textContent = denied ? "通知被浏览器拒绝" : (notifyOn ? "✓ 完成通知已开启" : "开启完成通知");
+}
+$("#btnNotify").onclick = async () => {
+  if (!("Notification" in window)) { alert("此浏览器不支持通知"); return; }
+  if (notifyOn) { notifyOn = false; localStorage.setItem("cwc_notify", "0"); refreshNotifyLabel(); return; }
+  let perm = Notification.permission;
+  if (perm === "default") { try { perm = await Notification.requestPermission(); } catch {} }
+  if (perm !== "granted") { alert("通知权限未授予"); refreshNotifyLabel(); return; }
+  notifyOn = true; localStorage.setItem("cwc_notify", "1"); refreshNotifyLabel();
+};
+refreshNotifyLabel();
+
+// ---- 聊天 ----
+const msgs = $("#msgs");
+function resetChat() {
+  sessionId = null;
+  localStorage.removeItem("cwc_session");
+  for (const k in toolCards) delete toolCards[k];
+  msgs.innerHTML = '<div class="empty"><span class="spark">✻</span>开始一段新对话</div>';
+}
+function setSession(id) {
+  if (!id || id === sessionId) return;
+  sessionId = id;
+  localStorage.setItem("cwc_session", id);  // 刷新恢复用
+}
+function clearEmpty() { const e = msgs.querySelector(".empty"); if (e) e.remove(); }
+function bubble(cls, text) {
+  clearEmpty();
+  const d = document.createElement("div"); d.className = "bubble " + cls;
+  d.textContent = text || ""; msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; return d;
+}
+function note(text) {
+  clearEmpty();
+  const d = document.createElement("div"); d.className = "tool"; d.textContent = text;
+  msgs.appendChild(d); msgs.scrollTop = msgs.scrollHeight; return d;
+}
+
+// ---- 工具调用可观测性 ----
+const toolCards = {};  // tool_use_id -> { card, body } 供结果回填
+// 从工具 input 里提炼一行「副标题」（命令 / 文件路径 / 关键参数）
+function toolSummary(name, input) {
+  input = input || {};
+  switch (name) {
+    case "Bash": case "PowerShell": return input.command || "";
+    case "Read": case "Write": case "Edit": case "MultiEdit": return input.file_path || input.path || "";
+    case "Glob": return input.pattern || "";
+    case "Grep": return (input.pattern || "") + (input.path ? "  @ " + input.path : "");
+    case "WebFetch": return input.url || "";
+    case "WebSearch": return input.query || "";
+    case "Task": case "Agent": return input.description || "";
+    default:
+      try { return JSON.stringify(input).slice(0, 120); } catch { return ""; }
+  }
+}
+function toolIcon(name) {
+  return ({ Bash:"⌨️", PowerShell:"⌨️", Read:"📖", Write:"✏️", Edit:"✏️", MultiEdit:"✏️",
+    Glob:"🔍", Grep:"🔍", WebFetch:"🌐", WebSearch:"🌐", Task:"🤖", Agent:"🤖" })[name] || "🔧";
+}
+// 渲染一个工具调用卡片；返回后登记到 toolCards 以便回填结果
+function renderToolCard(b) {
+  clearEmpty();
+  const card = document.createElement("div"); card.className = "tc";
+  const sub = toolSummary(b.name, b.input);
+  const head = document.createElement("div"); head.className = "tc-head";
+  head.innerHTML = `<span class="tc-ico">${toolIcon(b.name)}</span>`
+    + `<span class="tc-name"></span><span class="tc-sub"></span>`
+    + `<span class="tc-stat"></span><span class="tc-arrow">▸</span>`;
+  head.querySelector(".tc-name").textContent = b.name;
+  head.querySelector(".tc-sub").textContent = sub;
+  const body = document.createElement("div"); body.className = "tc-body";
+  // 完整 input（命令/参数）
+  const inLbl = document.createElement("div"); inLbl.className = "lbl"; inLbl.textContent = "输入";
+  const inPre = document.createElement("pre");
+  inPre.textContent = typeof b.input === "object" ? prettyInput(b.name, b.input) : String(b.input ?? "");
+  body.appendChild(inLbl); body.appendChild(inPre);
+  card.appendChild(head); card.appendChild(body);
+  head.onclick = () => card.classList.toggle("open");
+  msgs.appendChild(card); msgs.scrollTop = msgs.scrollHeight;
+  toolCards[b.id] = { card, body };
+}
+function prettyInput(name, input) {
+  if ((name === "Bash" || name === "PowerShell") && input.command) {
+    return input.command + (input.description ? "\n\n# " + input.description : "");
+  }
+  try { return JSON.stringify(input, null, 2); } catch { return String(input); }
+}
+// 工具结果回填到对应卡片
+function fillToolResult(id, content, isErr) {
+  const entry = toolCards[id];
+  let text = "";
+  if (typeof content === "string") text = content;
+  else if (Array.isArray(content)) text = content.map(c => (c && c.type === "text") ? c.text : (typeof c === "string" ? c : "")).join("\n");
+  else if (content != null) { try { text = JSON.stringify(content, null, 2); } catch { text = String(content); } }
+  if (!entry) { if (text.trim()) note((isErr ? "⚠ " : "") + text.slice(0, 200)); return; }
+  const stat = entry.card.querySelector(".tc-stat");
+  stat.textContent = isErr ? "出错" : "✓";
+  stat.className = "tc-stat " + (isErr ? "err" : "ok");
+  const lbl = document.createElement("div"); lbl.className = "lbl"; lbl.textContent = isErr ? "错误输出" : "输出";
+  const pre = document.createElement("pre"); pre.className = "out";
+  pre.textContent = text || "(无输出)";
+  entry.body.appendChild(lbl); entry.body.appendChild(pre);
+  if (isErr) entry.card.classList.add("open");  // 出错默认展开
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+// AskUserQuestion → 渲染成可点选项卡片。点选后把答案作为下一条消息发出（CLI 无头模式会
+// 自动驳回该工具并改用文本追问，所以把所选 label 当作普通回复发回去即可被理解）。
+function renderAskCard(questions) {
+  clearEmpty();
+  const single = questions.length === 1 && !questions[0].multiSelect;
+  const card = document.createElement("div"); card.className = "ask";
+  questions.forEach((q, qi) => {
+    if (q.header) { const h = document.createElement("div"); h.className = "ask-h"; h.textContent = "❓ " + q.header; card.appendChild(h); }
+    const qt = document.createElement("div"); qt.className = "ask-q"; qt.textContent = q.question; card.appendChild(qt);
+    const opts = document.createElement("div"); opts.className = "ask-opts";
+    (q.options || []).forEach(o => {
+      const btn = document.createElement("button"); btn.className = "ask-opt";
+      btn.dataset.qi = qi; btn.dataset.label = o.label;
+      const lab = document.createElement("div"); lab.className = "ask-lab"; lab.textContent = o.label; btn.appendChild(lab);
+      if (o.description) { const ds = document.createElement("div"); ds.className = "ask-desc"; ds.textContent = o.description; btn.appendChild(ds); }
+      btn.onclick = () => {
+        if (card.dataset.done) return;
+        if (single) { btn.classList.add("on"); submitAsk(card, questions); return; }
+        if (q.multiSelect) { btn.classList.toggle("on"); }
+        else { card.querySelectorAll('.ask-opt[data-qi="' + qi + '"]').forEach(x => x.classList.remove("on")); btn.classList.add("on"); }
+      };
+      opts.appendChild(btn);
+    });
+    card.appendChild(opts);
+  });
+  if (!single) {
+    const sbtn = document.createElement("button"); sbtn.className = "ask-send"; sbtn.textContent = "发送回答";
+    sbtn.onclick = () => submitAsk(card, questions);
+    card.appendChild(sbtn);
+  }
+  msgs.appendChild(card); msgs.scrollTop = msgs.scrollHeight;
+}
+function submitAsk(card, questions) {
+  if (card.dataset.done) return;
+  const ans = questions.map((q, qi) =>
+    [...card.querySelectorAll('.ask-opt.on[data-qi="' + qi + '"]')].map(x => x.dataset.label));
+  if (ans.some(a => a.length === 0)) { alert("还有问题没选"); return; }
+  card.dataset.done = "1"; card.classList.add("done");
+  const text = ans.length === 1
+    ? ans[0].join("、")
+    : questions.map((q, qi) => (q.header || ("问题" + (qi + 1))) + "：" + ans[qi].join("、")).join("；");
+  sendPrompt(text);
+}
+
+const input = $("#input");
+input.addEventListener("input", () => {
+  input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight, 120) + "px";
+});
+
+// ---- 图片附件（手机拍照/截图 → base64 随消息发出）----
+let pendingImages = [];  // [{media_type, data(base64), url(预览)}]
+$("#attach").onclick = () => $("#imgInput").click();
+$("#imgInput").onchange = async (e) => {
+  for (const f of e.target.files) {
+    if (!f.type.startsWith("image/")) continue;
+    if (pendingImages.length >= 8) { alert("最多 8 张图片"); break; }
+    try { pendingImages.push(await fileToImage(f)); } catch {}
+  }
+  e.target.value = "";  // 允许再次选同一文件
+  renderPreview();
+};
+function fileToImage(file) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => {
+      const dataUrl = r.result;                       // data:image/png;base64,xxxx
+      const comma = dataUrl.indexOf(",");
+      const meta = dataUrl.slice(5, dataUrl.indexOf(";")); // image/png
+      const mt = ["image/png","image/jpeg","image/gif","image/webp"].includes(meta) ? meta : "image/png";
+      resolve({ media_type: mt, data: dataUrl.slice(comma + 1), url: dataUrl });
+    };
+    r.onerror = reject;
+    r.readAsDataURL(file);
+  });
+}
+function renderPreview() {
+  const box = $("#preview"); box.innerHTML = "";
+  pendingImages.forEach((im, i) => {
+    const w = document.createElement("div"); w.className = "pv";
+    const img = document.createElement("img"); img.src = im.url;
+    const rm = document.createElement("button"); rm.className = "rm"; rm.textContent = "×";
+    rm.onclick = () => { pendingImages.splice(i, 1); renderPreview(); };
+    w.appendChild(img); w.appendChild(rm); box.appendChild(w);
+  });
+}
+
+function setBusy(on) {
+  busy = on;
+  $("#send").classList.toggle("stop", on);
+  $("#send").title = on ? "停止" : "发送";
+}
+
+// ---- 通知（页面在后台时，一轮对话完成/出错才提醒）----
+let notifyOn = localStorage.getItem("cwc_notify") === "1";
+let titleTimer = null;
+const BASE_TITLE = "Claude";
+function flashTitle(text) {
+  if (titleTimer) { clearInterval(titleTimer); titleTimer = null; }
+  if (document.visibilityState === "visible") return;
+  let on = false;
+  titleTimer = setInterval(() => {
+    document.title = (on = !on) ? text : BASE_TITLE;
+  }, 1000);
+}
+function clearFlash() {
+  if (titleTimer) { clearInterval(titleTimer); titleTimer = null; }
+  document.title = BASE_TITLE;
+}
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") clearFlash(); });
+function notifyDone(text, isErr) {
+  if (document.visibilityState === "visible") return;  // 在看着就不打扰
+  flashTitle(isErr ? "⚠ 出错了" : "✓ 回复完成");
+  if (notifyOn && "Notification" in window && Notification.permission === "granted") {
+    try {
+      const n = new Notification(isErr ? "Claude 执行出错" : "Claude 回复完成", {
+        body: (text || "").slice(0, 120), tag: "cwc-turn",
+      });
+      n.onclick = () => { window.focus(); clearFlash(); n.close(); };
+    } catch {}
+  }
+}
+
+function send() {
+  const text = input.value.trim();
+  if ((!text && !pendingImages.length) || busy) return;
+  const imgs = pendingImages;
+  pendingImages = []; renderPreview();
+  input.value = ""; input.style.height = "auto";
+  sendPrompt(text, imgs);
+}
+async function sendPrompt(text, imgs) {
+  imgs = imgs || [];
+  if ((!text && !imgs.length) || busy) return;
+  const meBubble = bubble("me", text);
+  // 用户气泡里回显缩略图
+  imgs.forEach(im => {
+    const img = document.createElement("img"); img.className = "msgimg"; img.src = im.url;
+    meBubble.appendChild(img);
+  });
+  setBusy(true);
+  aborter = new AbortController();
+  let ai = null;       // 当前 AI 气泡，延迟创建
+  let aiText = "";     // 累积的 AI 文本，结束时整体渲染 markdown
+  let think = null, thinkText = "";  // thinking 气泡
+  let hadError = false, aborted = false;
+  let waiting = note("● 思考中…"); waiting.classList.add("waiting");
+  const clearWaiting = () => { if (waiting) { waiting.remove(); waiting = null; } };
+
+  try {
+    const r = await fetch("/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: "Bearer " + TOKEN },
+      body: JSON.stringify({
+        prompt: text, session_id: sessionId, model: $("#model").value,
+        permission_mode: $("#permMode").value, work_dir: workDir,
+        images: imgs.map(im => ({ media_type: im.media_type, data: im.data })),
+      }),
+      signal: aborter.signal,
+    });
+    if (!r.ok) { bubble("err", "请求失败: " + r.status); hadError = true; return; }
+
+    const reader = r.body.getReader();
+    const dec = new TextDecoder();
+    let buf = "";
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf("\n\n")) >= 0) {
+        const chunk = buf.slice(0, i); buf = buf.slice(i + 2);
+        const line = chunk.replace(/^data: ?/, "");
+        if (!line.trim()) continue;
+        let m; try { m = JSON.parse(line); } catch { continue; }
+        if (m.session_id) setSession(m.session_id);
+
+        if (m.type === "stream_event") {
+          const ev = m.event || {};
+          const dt = ev.delta?.type;
+          if (ev.type === "content_block_start" && ev.content_block?.type === "tool_use") {
+            clearWaiting();  // 工具卡片在完整 assistant 消息里渲染（含完整 input），此处仅清等待提示
+          } else if (ev.type === "content_block_delta" && dt === "thinking_delta") {
+            clearWaiting();
+            if (!think) {
+              think = document.createElement("div"); think.className = "think";
+              clearEmpty(); msgs.appendChild(think);
+            }
+            thinkText += ev.delta.thinking || "";
+            think.textContent = "💭 " + thinkText;
+            msgs.scrollTop = msgs.scrollHeight;
+          } else if (ev.type === "content_block_delta" && dt === "text_delta") {
+            clearWaiting();
+            if (!ai) ai = bubble("ai", "");
+            aiText += ev.delta.text;
+            ai.textContent = aiText;  // 流式期间先显示纯文本（避免半截 markdown）
+            msgs.scrollTop = msgs.scrollHeight;
+          }
+        } else if (m.type === "assistant") {
+          // 完整 assistant 消息：渲染工具调用卡片 / AskUserQuestion 选项卡片
+          for (const b of (m.message?.content || [])) {
+            if (b?.type !== "tool_use") continue;
+            if (b.name === "AskUserQuestion" && b.input?.questions) { clearWaiting(); renderAskCard(b.input.questions); }
+            else { clearWaiting(); renderToolCard(b); }
+          }
+        } else if (m.type === "user") {
+          // 工具结果：回填到对应工具卡片
+          for (const b of (m.message?.content || [])) {
+            if (b?.type === "tool_result") fillToolResult(b.tool_use_id, b.content, b.is_error);
+          }
+        } else if (m.type === "console_error") {
+          bubble("err", "执行出错 (" + m.returncode + ")\n" + (m.stderr || "")); hadError = true;
+        }
+      }
+    }
+  } catch (e) {
+    if (e.name === "AbortError") { note("⏹ 已停止生成"); aborted = true; }
+    else { bubble("err", "连接中断: " + e.message); hadError = true; }
+  } finally {
+    clearWaiting();
+    if (ai && aiText) { ai.innerHTML = renderMarkdown(aiText); ai.classList.add("md"); }
+    aborter = null; setBusy(false);
+    if (!aborted) notifyDone(hadError ? "执行出错" : aiText, hadError);
+  }
+}
+function stop() { if (aborter) aborter.abort(); }
+$("#send").onclick = () => busy ? stop() : send();
+input.addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey && !/Mobi/i.test(navigator.userAgent)) {
+    e.preventDefault(); if (!busy) send();
+  }
+});
+
+// ---- 文件 ----
+async function api(path) {
+  const r = await fetch(path, { headers: { Authorization: "Bearer " + TOKEN } });
+  if (!r.ok) throw new Error(r.status); return r.json();
+}
+// 给 URL 追加当前 work_dir 查询参数（用于 /files /file /sessions /session）
+function wd(path) {
+  if (!workDir) return path;
+  return path + (path.indexOf("?") >= 0 ? "&" : "?") + "work_dir=" + encodeURIComponent(workDir);
+}
+function fmtSize(n) {
+  if (n < 1024) return n + " B";
+  if (n < 1048576) return (n / 1024).toFixed(1) + " K";
+  return (n / 1048576).toFixed(1) + " M";
+}
+async function loadFiles(path) {
+  let data; try { data = await api(wd("/files?path=" + encodeURIComponent(path))); }
+  catch { return; }
+  // 面包屑
+  const cr = $("#crumbs"); cr.innerHTML = "";
+  const root = document.createElement("a"); root.textContent = "根"; root.href = "javascript:";
+  root.onclick = () => loadFiles(""); cr.appendChild(root);
+  let acc = "";
+  (data.path ? data.path.split("/") : []).forEach(seg => {
+    acc = acc ? acc + "/" + seg : seg; const here = acc;
+    cr.appendChild(document.createTextNode(" / "));
+    const a = document.createElement("a"); a.textContent = seg; a.href = "javascript:";
+    a.onclick = () => loadFiles(here); cr.appendChild(a);
+  });
+  // 列表
+  const list = $("#list"); list.innerHTML = "";
+  data.entries.forEach(e => {
+    const row = document.createElement("div"); row.className = "row";
+    const full = data.path ? data.path + "/" + e.name : e.name;
+    row.innerHTML = `<span>${e.is_dir ? "📁" : "📄"}</span>
+      <span class="nm">${e.name}</span>
+      <span class="sz">${e.is_dir ? "" : fmtSize(e.size)}</span>`;
+    row.onclick = () => e.is_dir ? loadFiles(full) : openFile(full);
+    list.appendChild(row);
+  });
+}
+async function openFile(path) {
+  let data; try { data = await api(wd("/file?path=" + encodeURIComponent(path))); }
+  catch { return; }
+  $("#vname").textContent = path;
+  $("#vbody").textContent = data.binary
+    ? "[二进制文件，" + fmtSize(data.size) + "，不显示]"
+    : data.content + (data.truncated ? "\n\n… [已截断，仅显示前 2MB]" : "");
+  openPanel("viewer");
+}
+
+// ---- 历史会话 ----
+async function loadSessions() {
+  const box = $("#sesslist"); box.innerHTML = "";
+  let data; try { data = await api(wd("/sessions")); }
+  catch { box.innerHTML = '<div class="hint" style="padding:16px">加载失败</div>'; return; }
+  if (!data.sessions.length) {
+    box.innerHTML = '<div class="hint" style="padding:16px">该工作目录暂无历史会话</div>'; return;
+  }
+  data.sessions.forEach(s => {
+    const row = document.createElement("div"); row.className = "row";
+    const nm = document.createElement("div"); nm.className = "nm";
+    nm.textContent = s.summary || "(无文本摘要)";
+    const sz = document.createElement("div"); sz.className = "sz";
+    sz.textContent = new Date(s.mtime * 1000).toLocaleString() + " · " + s.count + " 条";
+    row.appendChild(nm); row.appendChild(sz);
+    row.onclick = () => openSession(s.id);
+    box.appendChild(row);
+  });
+}
+// 点历史 → 把整段对话载入「对话」视图，设好 sessionId，关闭历史面板、滚到最新，直接续聊
+// silent=true 用于刷新恢复：失败时抛错由调用方兜底，不弹窗、不涉及面板
+async function openSession(id, silent) {
+  let data;
+  try { data = await api(wd("/session/" + encodeURIComponent(id))); }
+  catch (e) { if (silent) throw e; alert("会话加载失败"); return; }
+  setSession(id);
+  msgs.innerHTML = "";  // 用历史替换当前对话内容
+  for (const k in toolCards) delete toolCards[k];
+  data.events.forEach(ev => {
+    if (ev.kind === "tool") { renderToolCard({ id: ev.id, name: ev.name, input: ev.input }); return; }
+    if (ev.kind === "tool_result") { fillToolResult(ev.id, ev.text, ev.is_error); return; }
+    const d = document.createElement("div");
+    if (ev.kind === "thinking") { d.className = "think"; d.textContent = "💭 " + ev.text; }
+    else if (ev.kind === "user") { d.className = "bubble me"; d.textContent = ev.text; }
+    else { d.className = "bubble ai md"; d.innerHTML = renderMarkdown(ev.text); } // AI 渲染 markdown
+    msgs.appendChild(d);
+  });
+  if (!data.events.length) { resetChat(); return; }
+  if (data.truncated) {
+    const d = document.createElement("div"); d.className = "hint";
+    d.style.cssText = "align-self:center;color:var(--mut);font-size:12px";
+    d.textContent = "… 仅载入前若干条历史，继续对话即可"; msgs.appendChild(d);
+  }
+  closePanel("history");
+  // 关闭面板后再滚到底部（等布局生效）
+  requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
+}
+</script>
+</body>
+</html>
