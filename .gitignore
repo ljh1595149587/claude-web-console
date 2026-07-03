@@ -6,3 +6,7 @@ config.json
 # Claude Code 本地设置：含机密（ANTHROPIC_AUTH_TOKEN 等）与个人权限记录，永不进 git
 .claude/settings.json
 .claude/settings.local.json
+# 文件规划系统的工作记忆（planning-with-files-zh）：会话内的临时规划，不入库
+task_plan.md
+findings.md
+progress.md
