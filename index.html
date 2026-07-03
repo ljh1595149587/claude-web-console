@@ -258,6 +258,11 @@
         <div class="hint" style="text-align:left;margin-top:6px">Plan＝只读规划不执行（最安全）；放行全部＝不确认直接干。无头模式下「默认」遇需确认操作可能被拒。</div>
       </div>
       <div class="field">
+        <label>推理强度</label>
+        <select id="effort"></select>
+        <div class="hint" style="text-align:left;margin-top:6px">思考投入程度：低→快而省，高/Max→更深入但更慢更耗额度。</div>
+      </div>
+      <div class="field">
         <label>工作目录</label>
         <select id="workDir" style="display:none"></select>
         <div class="val" id="setWorkDir">—</div>
@@ -445,6 +450,16 @@ function setupInfo(info) {
   pm.value = savedPm !== null ? savedPm : (info.default_perm_mode || "");
   pm.onchange = () => { localStorage.setItem("cwc_perm", pm.value); updatePermBar(); };
   updatePermBar();
+  // 推理强度下拉
+  const ef = $("#effort");
+  ef.innerHTML = "";
+  (info.efforts || []).forEach(m => {
+    const o = document.createElement("option");
+    o.value = m.id; o.textContent = m.label; ef.appendChild(o);
+  });
+  const savedEf = localStorage.getItem("cwc_effort");
+  ef.value = savedEf !== null ? savedEf : (info.default_effort || "");
+  ef.onchange = () => localStorage.setItem("cwc_effort", ef.value);
   // 工作目录：多个则显示下拉可切换，单个则静态显示
   const wdSel = $("#workDir"), wdVal = $("#setWorkDir"), dirs = info.work_dirs || [];
   const savedWd = localStorage.getItem("cwc_workdir");
@@ -575,8 +590,10 @@ function toolIcon(name) {
     Glob:"🔍", Grep:"🔍", WebFetch:"🌐", WebSearch:"🌐", Task:"🤖", Agent:"🤖" })[name] || "🔧";
 }
 // 渲染一个工具调用卡片；返回后登记到 toolCards 以便回填结果
-function renderToolCard(b) {
-  clearEmpty();
+// target 缺省 msgs；传入 fragment 时用于「上滑加载更早」批量插入（不自动滚动）
+function renderToolCard(b, target) {
+  const dest = target || msgs;
+  if (!target) clearEmpty();
   const card = document.createElement("div"); card.className = "tc";
   const sub = toolSummary(b.name, b.input);
   const head = document.createElement("div"); head.className = "tc-head";
@@ -593,7 +610,8 @@ function renderToolCard(b) {
   body.appendChild(inLbl); body.appendChild(inPre);
   card.appendChild(head); card.appendChild(body);
   head.onclick = () => card.classList.toggle("open");
-  msgs.appendChild(card); msgs.scrollTop = msgs.scrollHeight;
+  dest.appendChild(card);
+  if (!target) msgs.scrollTop = msgs.scrollHeight;
   toolCards[b.id] = { card, body };
 }
 function prettyInput(name, input) {
@@ -776,6 +794,7 @@ async function sendPrompt(text, imgs) {
       body: JSON.stringify({
         prompt: text, session_id: sessionId, model: $("#model").value,
         permission_mode: $("#permMode").value, work_dir: workDir,
+        effort: $("#effort").value,
         images: imgs.map(im => ({ media_type: im.media_type, data: im.data })),
       }),
       signal: aborter.signal,
@@ -923,34 +942,78 @@ async function loadSessions() {
     box.appendChild(row);
   });
 }
-// 点历史 → 把整段对话载入「对话」视图，设好 sessionId，关闭历史面板、滚到最新，直接续聊
+// 把一个历史事件渲染进 dest（缺省 msgs）。工具结果回填到已存在的卡片。
+function renderHistEvent(ev, dest) {
+  if (ev.kind === "tool") { renderToolCard({ id: ev.id, name: ev.name, input: ev.input }, dest && dest !== msgs ? dest : undefined); return; }
+  if (ev.kind === "tool_result") { fillToolResult(ev.id, ev.text, ev.is_error); return; }
+  const d = document.createElement("div");
+  if (ev.kind === "thinking") { d.className = "think"; d.textContent = "💭 " + ev.text; }
+  else if (ev.kind === "user") { d.className = "bubble me"; d.textContent = ev.text; }
+  else { d.className = "bubble ai md"; d.innerHTML = renderMarkdown(ev.text); }
+  (dest || msgs).appendChild(d);
+}
+
+// 历史分页状态：当前会话已加载的最早全局索引 histStart、总数 histTotal
+let histStart = 0, histTotal = 0, histLoading = false;
+
+// 点历史 → 载入「对话」视图，默认显示**最近**一段，设好 sessionId、滚到最新，直接续聊
 // silent=true 用于刷新恢复：失败时抛错由调用方兜底，不弹窗、不涉及面板
 async function openSession(id, silent) {
   let data;
-  try { data = await api(wd("/session/" + encodeURIComponent(id))); }
+  try { data = await api(wd("/session/" + encodeURIComponent(id))); }  // 默认末尾一段
   catch (e) { if (silent) throw e; alert("会话加载失败"); return; }
   setSession(id);
   msgs.innerHTML = "";  // 用历史替换当前对话内容
   for (const k in toolCards) delete toolCards[k];
-  data.events.forEach(ev => {
-    if (ev.kind === "tool") { renderToolCard({ id: ev.id, name: ev.name, input: ev.input }); return; }
-    if (ev.kind === "tool_result") { fillToolResult(ev.id, ev.text, ev.is_error); return; }
-    const d = document.createElement("div");
-    if (ev.kind === "thinking") { d.className = "think"; d.textContent = "💭 " + ev.text; }
-    else if (ev.kind === "user") { d.className = "bubble me"; d.textContent = ev.text; }
-    else { d.className = "bubble ai md"; d.innerHTML = renderMarkdown(ev.text); } // AI 渲染 markdown
-    msgs.appendChild(d);
-  });
+  histStart = data.start || 0;
+  histTotal = data.total || data.events.length;
   if (!data.events.length) { resetChat(); return; }
-  if (data.truncated) {
-    const d = document.createElement("div"); d.className = "hint";
-    d.style.cssText = "align-self:center;color:var(--mut);font-size:12px";
-    d.textContent = "… 仅载入前若干条历史，继续对话即可"; msgs.appendChild(d);
-  }
+  data.events.forEach(ev => renderHistEvent(ev));  // 追加到 msgs
+  updateHistTopHint();
   closePanel("history");
-  // 关闭面板后再滚到底部（等布局生效）
+  // 关闭面板后再滚到底部（等布局生效）＝最新一条
   requestAnimationFrame(() => { msgs.scrollTop = msgs.scrollHeight; });
 }
+
+// 顶部提示条：还有更早历史时提示「上滑加载」，加载完则移除
+function updateHistTopHint() {
+  let hint = $("#histTop");
+  if (histStart > 0) {
+    if (!hint) {
+      hint = document.createElement("div"); hint.id = "histTop"; hint.className = "hint";
+      hint.style.cssText = "align-self:center;color:var(--mut);font-size:12px;padding:4px";
+      msgs.insertBefore(hint, msgs.firstChild);
+    } else if (hint !== msgs.firstChild) {
+      msgs.insertBefore(hint, msgs.firstChild);
+    }
+    hint.textContent = histLoading ? "正在加载更早…" : "↑ 上滑加载更早的 " + histStart + " 条";
+  } else if (hint) {
+    hint.remove();
+  }
+}
+
+// 上滑到顶 → 加载更早的一段，插到最前并维持滚动位置（避免跳动）
+async function loadOlderHistory() {
+  if (histLoading || histStart <= 0 || !sessionId) return;
+  histLoading = true; updateHistTopHint();
+  const prevH = msgs.scrollHeight, prevTop = msgs.scrollTop;
+  let data;
+  try { data = await api(wd("/session/" + encodeURIComponent(sessionId) + "?end=" + histStart)); }
+  catch { histLoading = false; updateHistTopHint(); return; }
+  histStart = data.start || 0;
+  const hint = $("#histTop"); if (hint) hint.remove();  // 先摘掉顶部提示，插完再重建
+  // 正序渲染进 fragment（保证 tool_use→result 顺序），再整体插到最前
+  const frag = document.createDocumentFragment();
+  data.events.forEach(ev => renderHistEvent(ev, frag));
+  msgs.insertBefore(frag, msgs.firstChild);
+  histLoading = false;
+  updateHistTopHint();
+  // 维持视觉位置：新增内容撑高后，把滚动位置下移相应增量
+  requestAnimationFrame(() => { msgs.scrollTop = prevTop + (msgs.scrollHeight - prevH); });
+}
+msgs.addEventListener("scroll", () => {
+  if (msgs.scrollTop < 40 && histStart > 0 && !histLoading) loadOlderHistory();
+});
 </script>
 </body>
 </html>

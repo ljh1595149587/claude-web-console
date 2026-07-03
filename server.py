@@ -127,6 +127,18 @@ _ALLOWED_PERM_MODES = {
     "", "default", "plan", "acceptEdits", "auto", "dontAsk", "bypassPermissions",
 }
 
+# 推理强度（--effort）：前端可选，随 /chat 传来。空 = 用 CLI 默认（不加 --effort）。
+DEFAULT_EFFORT = cfg("effort", "") or ""
+EFFORTS = _CFG.get("efforts") or [
+    {"id": "", "label": "默认"},
+    {"id": "low", "label": "Low"},
+    {"id": "medium", "label": "Medium"},
+    {"id": "high", "label": "High"},
+    {"id": "xhigh", "label": "Extra High"},
+    {"id": "max", "label": "Max"},
+]
+_ALLOWED_EFFORTS = {"", "low", "medium", "high", "xhigh", "max"}
+
 # 鉴权模式：
 #   subscription —— 走 Max/Claude 订阅额度（CLAUDE_CODE_OAUTH_TOKEN 或本机已登录凭据）
 #   relay        —— 走第三方「中转站」的 Anthropic 兼容接口（自定义 base_url + 密钥，按量计费）
@@ -287,6 +299,8 @@ def info(request: Request):
         "default_model": DEFAULT_MODEL,
         "perm_modes": PERM_MODES,
         "default_perm_mode": DEFAULT_PERM_MODE,
+        "efforts": EFFORTS,
+        "default_effort": DEFAULT_EFFORT,
         "wechat_push": bool(SERVERCHAN_SENDKEY),
     }
 
@@ -437,15 +451,9 @@ def sessions(request: Request, work_dir: str = ""):
     return {"dir": d, "sessions": out}
 
 
-@app.get("/session/{sid}")
-def session_detail(request: Request, sid: str, work_dir: str = ""):
-    check_auth(request)
-    if not _SID_RE.match(sid):
-        raise HTTPException(status_code=400, detail="bad session id")
-    path = os.path.join(_sessions_dir(resolve_work_dir(work_dir)), sid + ".jsonl")
-    if not os.path.isfile(path):
-        raise HTTPException(status_code=404, detail="no such session")
-    events, truncated = [], False
+def _parse_session_events(path: str) -> list:
+    """把整个会话 jsonl 解析成有序事件列表（text/thinking/tool/tool_result）。"""
+    events = []
     for m in _iter_msgs(path):
         role = m.get("role")
         content = m.get("content")
@@ -489,12 +497,33 @@ def session_detail(request: Request, sid: str, work_dir: str = ""):
                     "text": (rc or "")[:4000],
                     "is_error": bool(b.get("is_error")),
                 })
-            if len(events) >= _SESSION_MAX_EVENTS:
-                truncated = True
-                break
-        if truncated:
-            break
-    return {"id": sid, "events": events, "truncated": truncated}
+    return events
+
+
+@app.get("/session/{sid}")
+def session_detail(request: Request, sid: str, work_dir: str = "",
+                   end: int = -1, limit: int = _SESSION_MAX_EVENTS):
+    """回放会话。默认返回**最近** limit 条（end<0 表示末尾）；上滑加载更早时
+    传 end=当前已加载最早一条的全局索引，取其之前的 limit 条。返回 start/end/total
+    供前端判断还有没有更早的、以及维护滚动位置。"""
+    check_auth(request)
+    if not _SID_RE.match(sid):
+        raise HTTPException(status_code=400, detail="bad session id")
+    path = os.path.join(_sessions_dir(resolve_work_dir(work_dir)), sid + ".jsonl")
+    if not os.path.isfile(path):
+        raise HTTPException(status_code=404, detail="no such session")
+    all_events = _parse_session_events(path)
+    total = len(all_events)
+    limit = max(1, min(int(limit), _SESSION_MAX_EVENTS))
+    end = total if end is None or end < 0 else min(int(end), total)
+    start = max(0, end - limit)
+    return {
+        "id": sid,
+        "events": all_events[start:end],
+        "start": start,     # 本次返回切片的起始全局索引
+        "end": end,         # 结束（不含）
+        "total": total,     # 会话总事件数
+    }
 
 
 @app.post("/chat")
@@ -514,6 +543,10 @@ async def chat(request: Request):
     perm_mode = (data.get("permission_mode") or "").strip() or DEFAULT_PERM_MODE
     if perm_mode and perm_mode not in _ALLOWED_PERM_MODES:
         raise HTTPException(status_code=400, detail="unknown permission mode")
+
+    effort = (data.get("effort") or "").strip() or DEFAULT_EFFORT
+    if effort and effort not in _ALLOWED_EFFORTS:
+        raise HTTPException(status_code=400, detail="unknown effort")
 
     work_dir = resolve_work_dir(data.get("work_dir"))  # 白名单校验，非法直接 403
 
@@ -547,6 +580,8 @@ async def chat(request: Request):
         extra += ["--model", model]
     if perm_mode:
         extra += ["--permission-mode", perm_mode]
+    if effort:
+        extra += ["--effort", effort]
     if session_id:
         extra += ["--resume", str(session_id)]
     cmd = build_claude_cmd(extra)

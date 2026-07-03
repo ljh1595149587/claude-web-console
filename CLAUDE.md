@@ -33,6 +33,7 @@
 / `work_dir` / `work_dirs`（可选，多项目白名单，前端可切换）/ `host` / `port` / `proxy` / `claude_bin`
 / `model`（默认模型，空＝CLI 默认）/ `models`（前端下拉可选列表，可整体覆盖）
 / `permission_mode`（默认权限模式，空＝CLI 默认）/ `permission_modes`（前端下拉可选列表，可整体覆盖）
+/ `effort`（默认推理强度，空＝CLI 默认）/ `efforts`（前端下拉可选列表，可整体覆盖）
 / `serverchan_sendkey`（可选，Server酱 SendKey，填了则任务完成/出错时微信推送）
 
 **鉴权模式（`auth_mode`）**：
@@ -68,10 +69,15 @@
 选择存 localStorage 并随 /chat 传给后端。发送中按钮变「停止」，点它中断 fetch、后端随之 kill 子进程。
 > 当前 config 实际跑在 **relay 模式**（base_url 指向中转站、用 api_key）——图片输入等验证都走的它，
 > 未耗 Max 额度。切回订阅只需把 auth_mode 改回 subscription。
-历史会话：「历史」标签列出本目录所有历史 jsonl（摘要+时间+条数）。点某条 → 把整段对话
-**直接载入「对话」视图**（替换当前 #msgs 内容、AI 渲染 markdown）、设好 sessionId、切到对话页
+历史会话：「历史」标签列出本目录所有历史 jsonl（摘要+时间+条数，按 mtime 倒序）。点某条 → 把对话
+**载入「对话」视图**（替换当前 #msgs 内容、AI 渲染 markdown）、设好 sessionId、切到对话页
 并滚到最新一条，随后直接发消息即走 --resume 续聊、新回复追加在同一对话流里。
 （不再用独立只读浮层——历史与对话合一。）
+> 长会话分页（已实测）：`/session/{sid}` 支持 `?end=&limit=`，默认返回**最近** limit 条
+> （`_SESSION_MAX_EVENTS`=1000）并带 `start/end/total`。前端默认载最近一段、滚到底＝最新；
+> 上滑到顶触发 `loadOlderHistory` 用 `?end=当前最早索引` 拉更早的一段、正序渲染进 fragment
+> 后 insertBefore 到最前、并按 scrollHeight 增量维持滚动位置（不跳动）。修掉了「长会话只显示
+> 最早 1000 条、最近的反而被截掉」的问题。
 
 工具调用可观测性：盲操作手机端的核心——必须能看清电脑上的 claude 到底做了什么。前端把流里完整
 `assistant` 消息的 `tool_use` 块渲染成**可折叠工具卡片**（图标+工具名+副标题：Bash/PowerShell 显示命令、
@@ -125,12 +131,15 @@ user 消息写入 stdin。
 
 权限模式（工具权限限制）：设置里下拉选 permission-mode（默认/plan/acceptEdits/bypassPermissions），
 存 localStorage（`cwc_perm`）、随 /chat 传给后端，后端白名单校验后加 `--permission-mode`。
-标签用官方 VS Code 扩展文案（Ask before edits/Edit automatically/Plan mode/Bypass permissions）；
 输入框上方状态条仿 Claude Code 终端（`⏸ plan mode on` 绿 / `⏵⏵ accept edits on` 蓝 /
 `⏵⏵ bypass permissions on` 红；default 不显示）。CLI 合法值：default/plan/acceptEdits/auto/dontAsk/bypassPermissions。
 > 注：`-p` 无头模式下权限确认无法内联（同 AskUserQuestion 的 harness 限制），所以有用的主要是
 > **plan**（只读规划不执行，最安全）与 acceptEdits/bypassPermissions（放行）；default 遇需确认操作可能被拒。
 > 已实测 `--permission-mode plan` 参数正确透传子进程且生效（走 relay 验证）。
+
+推理强度（`--effort`）：设置里下拉选 low/medium/high/xhigh/max（空＝CLI 默认），存 localStorage
+（`cwc_effort`）、随 /chat 传给后端，后端白名单校验（`_ALLOWED_EFFORTS`）后加 `--effort`。
+已实测非法值 400、`/api/info` 返回 efforts 列表。与模型/权限模式同一套「config 默认+白名单+前端下拉」结构。
 
 多项目切换：config 配 `work_dirs` 白名单（每项字符串或 {path,label}）则设置里出现工作目录下拉；
 `/files /file /sessions /session` 带 `?work_dir=`、`/chat` body 带 `work_dir`，后端 `resolve_work_dir`
